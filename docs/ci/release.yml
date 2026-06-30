@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin       # Apple silicon
+            os: macos-latest
+          - target: x86_64-apple-darwin         # Intel Mac
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu    # Linux
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc      # Windows
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # cpal needs ALSA headers on Linux.
+      - name: Install ALSA (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Stage a single binary (with .exe on Windows) under a per-target name.
+      - name: Stage binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/voicetools" "dist/voicetools-${{ matrix.target }}"
+      - name: Stage binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist
+          copy "target\${{ matrix.target }}\release\voicetools.exe" "dist\voicetools-${{ matrix.target }}.exe"
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/voicetools-${{ matrix.target }}*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicetools-${{ matrix.target }}
+          path: dist/voicetools-${{ matrix.target }}*
