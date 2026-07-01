@@ -12,6 +12,7 @@ mod audio;
 mod mic;
 mod protocol;
 mod setup;
+mod tls;
 mod transcribe;
 mod vad;
 
@@ -35,6 +36,14 @@ enum Command {
     Setup {
         #[arg(long, default_value = "parakeet-v3")]
         model: String,
+        /// Extra CA certificate (PEM) to trust, in addition to the OS store.
+        /// Repeatable.
+        #[arg(long = "ca-cert")]
+        ca_cert: Vec<PathBuf>,
+        /// Disable TLS certificate verification for downloads. Dangerous —
+        /// only use on a trusted network as a last resort.
+        #[arg(long)]
+        insecure: bool,
     },
     /// List known models and whether they're installed.
     Models,
@@ -75,7 +84,17 @@ impl TranscribeArgs {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Command::Setup { model }) => setup::run(&model),
+        Some(Command::Setup {
+            model,
+            ca_cert,
+            insecure,
+        }) => setup::run(
+            &model,
+            &tls::TlsOptions {
+                extra_ca_certs: ca_cert,
+                insecure,
+            },
+        ),
         Some(Command::Models) => setup::list(),
         Some(Command::Transcribe(args)) => run_transcribe(args),
         None => run_transcribe(TranscribeArgs::from_env()),
