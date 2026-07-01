@@ -11,6 +11,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context};
 
+use crate::tls::TlsOptions;
+
+/// Where one-time mirrored copies of the model files live, for networks that
+/// can't reach huggingface.co (e.g. behind a corporate proxy). Uploaded
+/// manually/once — not kept in sync with upstream. See
+/// `.github/workflows/mirror-models.yml`.
+const MIRROR_BASE: &str = "https://github.com/kolisachint/voicetools/releases/download/models-v1";
+
 /// Which backend a model drives. Lets `main` pick the right loader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -65,24 +73,28 @@ impl Model {
         }
     }
 
-    /// `(remote_url, local_filename)` pairs to fetch. Local filenames are
-    /// canonicalized so every Parakeet variant loads through the same code.
-    pub fn files(&self) -> Vec<(&'static str, &'static str)> {
+    /// `(huggingface_url, mirror_filename, local_filename)` triples to fetch.
+    /// Local filenames are canonicalized so every Parakeet variant loads
+    /// through the same code. `mirror_filename` names the same content as a
+    /// release asset under [`MIRROR_BASE`], tried if the HuggingFace URL
+    /// fails (e.g. no route to huggingface.co).
+    pub fn files(&self) -> Vec<(&'static str, &'static str, &'static str)> {
         match self {
             Model::ParakeetV3Int8 => vec![
-                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx", "encoder.int8.onnx"),
-                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx", "decoder_joint.int8.onnx"),
-                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx", "nemo128.onnx"),
-                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt", "vocab.txt"),
+                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx", "parakeet-v3-encoder.int8.onnx", "encoder.int8.onnx"),
+                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx", "parakeet-v3-decoder_joint.int8.onnx", "decoder_joint.int8.onnx"),
+                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx", "parakeet-v3-nemo128.onnx", "nemo128.onnx"),
+                ("https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt", "parakeet-v3-vocab.txt", "vocab.txt"),
             ],
             Model::ParakeetV2Int8 => vec![
-                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/encoder-model.int8.onnx", "encoder.int8.onnx"),
-                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/decoder_joint-model.int8.onnx", "decoder_joint.int8.onnx"),
-                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/nemo128.onnx", "nemo128.onnx"),
-                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/vocab.txt", "vocab.txt"),
+                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/encoder-model.int8.onnx", "parakeet-v2-encoder.int8.onnx", "encoder.int8.onnx"),
+                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/decoder_joint-model.int8.onnx", "parakeet-v2-decoder_joint.int8.onnx", "decoder_joint.int8.onnx"),
+                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/nemo128.onnx", "parakeet-v2-nemo128.onnx", "nemo128.onnx"),
+                ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/vocab.txt", "parakeet-v2-vocab.txt", "vocab.txt"),
             ],
             Model::WhisperSmallEn => vec![(
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+                "whisper-small-en-ggml-small.en.bin",
                 "ggml-small.en.bin",
             )],
         }
@@ -96,7 +108,10 @@ impl Model {
     /// Whether every file for this model is present on disk.
     pub fn is_ready(&self) -> bool {
         match self.dir() {
-            Ok(dir) => self.files().iter().all(|(_, name)| dir.join(name).exists()),
+            Ok(dir) => self
+                .files()
+                .iter()
+                .all(|(_, _, name)| dir.join(name).exists()),
             Err(_) => false,
         }
     }
@@ -110,7 +125,7 @@ pub fn models_root() -> anyhow::Result<PathBuf> {
 }
 
 /// `voicetools setup --model <name>`: download a model if it isn't present.
-pub fn run(name: &str) -> anyhow::Result<()> {
+pub fn run(name: &str, tls_opts: &TlsOptions) -> anyhow::Result<()> {
     let model = Model::parse(name)?;
     let dir = model.dir()?;
     fs::create_dir_all(&dir)
@@ -123,14 +138,38 @@ pub fn run(name: &str) -> anyhow::Result<()> {
         dir.display()
     );
 
-    for (url, filename) in model.files() {
+    let agent = crate::tls::build_agent(tls_opts)?;
+
+    for (hf_url, mirror_name, filename) in model.files() {
         let dest = dir.join(filename);
         if dest.exists() {
             eprintln!("  ✓ {filename} (already present)");
             continue;
         }
-        eprintln!("  ↓ {filename}");
-        download_with_progress(url, &dest).with_context(|| format!("downloading {url}"))?;
+
+        let mirror_url = format!("{MIRROR_BASE}/{mirror_name}");
+        let sources: [(&str, &str); 2] = [("huggingface", hf_url), ("mirror", &mirror_url)];
+
+        let mut last_err = None;
+        let mut ok = false;
+        for (label, url) in sources {
+            eprintln!("  ↓ {filename} (from {label})");
+            match download_with_progress(&agent, url, &dest) {
+                Ok(()) => {
+                    ok = true;
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("    ✗ {label} failed: {e:#}");
+                    last_err = Some(e);
+                }
+            }
+        }
+        if !ok {
+            return Err(last_err
+                .unwrap()
+                .context(format!("all sources failed for {filename}")));
+        }
     }
 
     eprintln!("Done. {} is ready.", model.id());
@@ -160,9 +199,9 @@ pub fn list() -> anyhow::Result<()> {
 /// Stream `url` to `dest`, writing to a `.part` file first and renaming on
 /// success so a partial download never looks complete. Progress is printed to
 /// **stderr** to keep stdout clean for the line protocol.
-pub fn download_with_progress(url: &str, dest: &Path) -> anyhow::Result<()> {
-    let resp = ureq::get(url)
-        .set("User-Agent", "voicetools/0.1")
+pub fn download_with_progress(agent: &ureq::Agent, url: &str, dest: &Path) -> anyhow::Result<()> {
+    let resp = agent
+        .get(url)
         .call()
         .with_context(|| format!("request failed: {url}"))?;
 

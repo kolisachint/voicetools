@@ -28,7 +28,11 @@ whisper-rs = { version = "0.12", optional = true }
 # --- Always-on: mic, audio, CLI, downloads ---
 cpal   = "0.15"
 hound  = "3.5"           # WAV decode for `--wav` and tests
-ureq   = { version = "2", features = ["tls"] }
+ureq   = { version = "2", features = ["tls", "native-certs", "proxy-from-env"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.7"
+rustls-pemfile = "2"
+webpki-roots = "0.26"
 dirs   = "5"
 anyhow = "1"
 clap   = { version = "4", features = ["derive", "env"] }
