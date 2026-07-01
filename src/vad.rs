@@ -17,6 +17,9 @@ pub enum VadEvent {
     /// The current chunk is silent, but we're still waiting (either the user
     /// hasn't spoken yet, or the trailing-silence timer hasn't elapsed).
     Silence,
+    /// The first silent chunk after speech — the trailing-silence timer just
+    /// started. Fired once per speech run, useful for UI phase markers.
+    SilenceStart,
     /// Trailing silence has lasted long enough — stop recording.
     SilenceTimeout,
 }
@@ -67,13 +70,15 @@ impl Vad {
         } else if !self.has_heard_speech {
             // Don't start the timeout clock until the user actually speaks.
             VadEvent::Silence
-        } else {
-            let started = self.silent_since.get_or_insert_with(Instant::now);
+        } else if let Some(started) = self.silent_since {
             if started.elapsed().as_millis() >= self.silence_duration_ms as u128 {
                 VadEvent::SilenceTimeout
             } else {
                 VadEvent::Silence
             }
+        } else {
+            self.silent_since = Some(Instant::now());
+            VadEvent::SilenceStart
         }
     }
 }
@@ -129,7 +134,7 @@ mod tests {
         assert!(vad.heard_speech());
 
         // First silent chunk starts the clock but shouldn't time out yet.
-        assert_eq!(vad.push(&quiet(160)), VadEvent::Silence);
+        assert_eq!(vad.push(&quiet(160)), VadEvent::SilenceStart);
         sleep(Duration::from_millis(50));
         assert_eq!(vad.push(&quiet(160)), VadEvent::SilenceTimeout);
     }
@@ -138,10 +143,12 @@ mod tests {
     fn speech_resets_silence_timer() {
         let mut vad = Vad::with_threshold(50, 0.01);
         vad.push(&loud(160));
-        vad.push(&quiet(160));
+        assert_eq!(vad.push(&quiet(160)), VadEvent::SilenceStart);
         sleep(Duration::from_millis(30));
         // Speaking again clears the timer.
         assert_eq!(vad.push(&loud(160)), VadEvent::Speech);
-        assert_eq!(vad.push(&quiet(160)), VadEvent::Silence);
+        // Silence after fresh speech starts a new run, so it's the edge
+        // event again, not a continuation of the old timer.
+        assert_eq!(vad.push(&quiet(160)), VadEvent::SilenceStart);
     }
 }

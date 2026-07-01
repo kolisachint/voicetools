@@ -59,6 +59,23 @@ voicetools transcribe --wav recording.wav
 
 Environment variables: `VOICETOOLS_MODEL`, `VOICE_SILENCE_MS`.
 
+## Serve (persistent daemon)
+
+`transcribe` reloads the ONNX models on every invocation, which is fine for a
+single call but adds a cold start to every push-to-talk press. `serve` loads
+the models once and then answers commands on stdin, so repeated captures are
+instant:
+
+```bash
+voicetools serve
+# stdin:  START            begin mic capture + VAD
+#         CANCEL           stop the current capture without transcribing
+#         SHUTDOWN         exit gracefully
+```
+
+Same `--model`/`--silence-ms` flags and env vars as `transcribe`. One capture
+runs at a time; the mic opens on `START` and closes when it stops.
+
 ## Output protocol
 
 Every line on **stdout** is one event; **stderr** carries human logs and
@@ -72,6 +89,14 @@ DONE                     # finished
 ERROR <message>          # fatal; process exits non-zero
 ```
 
+`serve` speaks the same protocol plus three daemon-only lines:
+
+```text
+READY                    # models finished loading; ready for START
+LEVEL 0.0123              # live RMS energy per audio chunk, while listening
+PHASE silence             # trailing silence just started, while listening
+```
+
 ## Architecture
 
 ```
@@ -82,6 +107,7 @@ src/
 ├── vad.rs             energy VAD with auto-stop on trailing silence
 ├── setup.rs           model registry + HuggingFace download wizard
 ├── protocol.rs        the stdout line protocol
+├── serve.rs           persistent daemon: START/CANCEL/SHUTDOWN over stdin
 └── transcribe/
     ├── mod.rs         Transcriber trait + backend selection
     ├── parakeet.rs    ONNX Runtime: nemo128 → encoder → decoder_joint (TDT)
