@@ -28,11 +28,7 @@ impl WhisperTranscriber {
 }
 
 impl Transcriber for WhisperTranscriber {
-    fn transcribe(
-        &mut self,
-        pcm: &[f32],
-        on_segment: &mut dyn FnMut(&str),
-    ) -> anyhow::Result<()> {
+    fn transcribe(&mut self, pcm: &[f32], on_segment: &mut dyn FnMut(&str)) -> anyhow::Result<()> {
         if pcm.is_empty() {
             return Ok(());
         }
@@ -44,9 +40,13 @@ impl Transcriber for WhisperTranscriber {
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
 
-        state.full(params, pcm).context("whisper inference failed")?;
+        state
+            .full(params, pcm)
+            .context("whisper inference failed")?;
 
-        let n = state.full_n_segments().context("counting whisper segments")?;
+        let n = state
+            .full_n_segments()
+            .context("counting whisper segments")?;
         for i in 0..n {
             let text = state
                 .full_get_segment_text(i)

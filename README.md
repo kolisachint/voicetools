@@ -121,11 +121,12 @@ cargo build --release --features whisper   # add whisper fallback
 
 ## Releases
 
-A cross-compile + release GitHub Actions workflow is provided in
-[`docs/ci/release.yml`](docs/ci/release.yml) (with install instructions in
-[`docs/ci/`](docs/ci/)). It isn't committed under `.github/workflows/` directly
-because the bot branch lacks GitHub's `workflow` scope — move it into place and
-push from an account that has that scope to enable releases.
+CI (`cargo fmt`/`clippy`/`test`) and release automation live in
+[`.github/workflows/`](.github/workflows/) (`ci.yml`, `release.yml`); see
+[`ci/README.md`](ci/README.md) for the workflow reference. Releases are cut via
+the `/pr <patch|minor|major>` slash command: merging the labeled PR bumps the
+version, tags, publishes to crates.io, and attaches macOS/Linux/Windows
+binaries. Requires the `CRATES_IO_TOKEN` secret.
 
 ## Editor / TUI integration
 

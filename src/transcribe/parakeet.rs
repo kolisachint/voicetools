@@ -157,11 +157,7 @@ impl ParakeetTranscriber {
 }
 
 impl Transcriber for ParakeetTranscriber {
-    fn transcribe(
-        &mut self,
-        pcm: &[f32],
-        on_segment: &mut dyn FnMut(&str),
-    ) -> anyhow::Result<()> {
+    fn transcribe(&mut self, pcm: &[f32], on_segment: &mut dyn FnMut(&str)) -> anyhow::Result<()> {
         if pcm.is_empty() {
             return Ok(());
         }
@@ -207,7 +203,11 @@ impl Transcriber for ParakeetTranscriber {
             let duration = argmax(&logits[token_classes..]);
 
             if token != blank {
-                emit_token(self.vocab.get(token).map(String::as_str), &mut word, on_segment);
+                emit_token(
+                    self.vocab.get(token).map(String::as_str),
+                    &mut word,
+                    on_segment,
+                );
                 label = token as i32;
                 state1 = next1;
                 state2 = next2;
