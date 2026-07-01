@@ -266,11 +266,20 @@ fn argmax(values: &[f32]) -> usize {
 }
 
 /// Build a CPU ONNX session with graph optimizations enabled.
+///
+/// **Single-threaded on purpose.** With multiple intra-op threads, ORT's int8
+/// reductions run in a non-deterministic order, so the encoder/joint logits
+/// wobble slightly between runs. Greedy TDT decoding is unusually sensitive to
+/// that: one flipped duration argmax shifts every following frame alignment,
+/// and the predictor (conditioned on emitted tokens) diverges — the same clip
+/// decodes correctly one run and drops or garbles half the words the next.
+/// One thread makes decoding deterministic and correct, and measured no slower
+/// here (the int8 kernels barely parallelize), so there's nothing to trade.
 fn build_session(path: &Path) -> anyhow::Result<Session> {
     Session::builder()
         .context("creating ort session builder")?
         .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(4)?
+        .with_intra_threads(1)?
         .commit_from_file(path)
         .with_context(|| format!("loading model {}", path.display()))
 }
