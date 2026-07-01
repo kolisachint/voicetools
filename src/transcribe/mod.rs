@@ -13,11 +13,7 @@ pub trait Transcriber {
     /// Transcribe 16 kHz mono f32 PCM. `on_segment` is called for each chunk
     /// of recognized text (typically a word) as it is decoded, so callers can
     /// stream output rather than waiting for the whole utterance.
-    fn transcribe(
-        &mut self,
-        pcm: &[f32],
-        on_segment: &mut dyn FnMut(&str),
-    ) -> anyhow::Result<()>;
+    fn transcribe(&mut self, pcm: &[f32], on_segment: &mut dyn FnMut(&str)) -> anyhow::Result<()>;
 }
 
 /// Load the transcriber for `model`, picking the backend by feature flags.

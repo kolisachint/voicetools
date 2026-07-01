@@ -96,10 +96,7 @@ impl Model {
     /// Whether every file for this model is present on disk.
     pub fn is_ready(&self) -> bool {
         match self.dir() {
-            Ok(dir) => self
-                .files()
-                .iter()
-                .all(|(_, name)| dir.join(name).exists()),
+            Ok(dir) => self.files().iter().all(|(_, name)| dir.join(name).exists()),
             Err(_) => false,
         }
     }
@@ -107,8 +104,8 @@ impl Model {
 
 /// Root directory holding all installed models.
 pub fn models_root() -> anyhow::Result<PathBuf> {
-    let base = dirs::data_dir()
-        .context("could not determine a data directory for this platform")?;
+    let base =
+        dirs::data_dir().context("could not determine a data directory for this platform")?;
     Ok(base.join("voicetools").join("models"))
 }
 
@@ -133,8 +130,7 @@ pub fn run(name: &str) -> anyhow::Result<()> {
             continue;
         }
         eprintln!("  ↓ {filename}");
-        download_with_progress(url, &dest)
-            .with_context(|| format!("downloading {url}"))?;
+        download_with_progress(url, &dest).with_context(|| format!("downloading {url}"))?;
     }
 
     eprintln!("Done. {} is ready.", model.id());
@@ -151,7 +147,11 @@ pub fn list() -> anyhow::Result<()> {
         Model::ParakeetV2Int8,
         Model::WhisperSmallEn,
     ] {
-        let mark = if model.is_ready() { "installed" } else { "not installed" };
+        let mark = if model.is_ready() {
+            "installed"
+        } else {
+            "not installed"
+        };
         println!("{:<14} {:<8} [{}]", model.id(), model.size_hint(), mark);
     }
     Ok(())
@@ -172,8 +172,7 @@ pub fn download_with_progress(url: &str, dest: &Path) -> anyhow::Result<()> {
 
     let tmp = dest.with_extension("part");
     let mut reader = resp.into_reader();
-    let mut file = fs::File::create(&tmp)
-        .with_context(|| format!("creating {}", tmp.display()))?;
+    let mut file = fs::File::create(&tmp).with_context(|| format!("creating {}", tmp.display()))?;
 
     let mut written = 0u64;
     let mut last_print = 0u64;
@@ -190,7 +189,12 @@ pub fn download_with_progress(url: &str, dest: &Path) -> anyhow::Result<()> {
             last_print = written;
             match total {
                 Some(t) if t > 0 => {
-                    eprint!("\r    {:>3.0}%  ({} / {})", written as f64 / t as f64 * 100.0, human(written), human(t));
+                    eprint!(
+                        "\r    {:>3.0}%  ({} / {})",
+                        written as f64 / t as f64 * 100.0,
+                        human(written),
+                        human(t)
+                    );
                 }
                 _ => eprint!("\r    {}", human(written)),
             }
@@ -201,8 +205,7 @@ pub fn download_with_progress(url: &str, dest: &Path) -> anyhow::Result<()> {
     drop(file);
     eprintln!("\r    100%  ({})        ", human(written));
 
-    fs::rename(&tmp, dest)
-        .with_context(|| format!("finalizing {}", dest.display()))?;
+    fs::rename(&tmp, dest).with_context(|| format!("finalizing {}", dest.display()))?;
     Ok(())
 }
 

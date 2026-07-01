@@ -61,9 +61,7 @@ pub fn load_wav_16k_mono<P: AsRef<Path>>(path: P) -> anyhow::Result<Vec<f32>> {
     let spec = reader.spec();
 
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .collect::<Result<_, _>>()?,
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
         hound::SampleFormat::Int => {
             let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
             reader
