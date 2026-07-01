@@ -65,6 +65,10 @@ struct ServeArgs {
     /// Trailing-silence timeout, in milliseconds, before auto-stop.
     #[arg(long, env = "VOICE_SILENCE_MS", default_value_t = 600)]
     silence_ms: u64,
+    /// Minimum gap between live PARTIAL transcripts while listening, in
+    /// milliseconds. Set to 0 to disable partials (emit only the final).
+    #[arg(long, env = "VOICE_PARTIAL_MS", default_value_t = 400)]
+    partial_ms: u64,
 }
 
 #[derive(Args, Clone)]
@@ -113,7 +117,7 @@ fn main() {
         ),
         Some(Command::Models) => setup::list(),
         Some(Command::Transcribe(args)) => run_transcribe(args),
-        Some(Command::Serve(args)) => serve::run(&args.model, args.silence_ms),
+        Some(Command::Serve(args)) => serve::run(&args.model, args.silence_ms, args.partial_ms),
         None => run_transcribe(TranscribeArgs::from_env()),
     };
 

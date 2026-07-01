@@ -16,14 +16,18 @@ Code:
 - `src/main.rs` — CLI + subcommands (`setup`, `models`, `transcribe`,
   `serve`), the mic → VAD → resample → transcribe pipeline
 - `src/mic.rs` — `cpal` capture (native-rate mono chunks over a channel)
-- `src/audio.rs` — mono downmix, linear resample → 16 kHz, WAV loading
+- `src/audio.rs` — mono downmix, anti-aliased resample → 16 kHz (windowed-sinc
+  low-pass before decimation), WAV loading
 - `src/vad.rs` — energy VAD with auto-stop on trailing silence
   (`Speech`/`Silence`/`SilenceStart`/`SilenceTimeout`)
 - `src/setup.rs` — model registry + HuggingFace download wizard
 - `src/protocol.rs` — the stdout line protocol
-  (`STATUS`/`SEGMENT`/`DONE`/`ERROR`, plus `READY`/`LEVEL`/`PHASE` for `serve`)
+  (`STATUS`/`SEGMENT`/`DONE`/`ERROR`, plus `READY`/`LEVEL`/`PARTIAL`/`PHASE`/
+  `FINAL` for `serve`)
 - `src/serve.rs` — persistent daemon: loads models once, then answers
-  `START`/`CANCEL`/`SHUTDOWN` on stdin (one capture at a time)
+  `START`/`CANCEL`/`SHUTDOWN` on stdin (one capture at a time). Streams live
+  `PARTIAL`s by re-decoding the audio-so-far on a `--partial-ms` interval,
+  then emits one `FINAL`
 - `src/transcribe/mod.rs` — `Transcriber` trait + backend selection
 - `src/transcribe/parakeet.rs` — ONNX Runtime TDT decode (default feature)
 - `src/transcribe/whisper.rs` — whisper.cpp fallback (feature = "whisper")

@@ -11,13 +11,21 @@
 //! ```
 //!
 //! `voicetools serve` (see `src/serve.rs`) speaks the same protocol plus
-//! three daemon-only lines:
+//! these daemon-only lines:
 //!
 //! ```text
 //! READY                    # models finished loading; ready for START
 //! LEVEL 0.0123              # live RMS energy for one audio chunk
+//! PARTIAL hello wor         # interim transcript so far; replaces the last PARTIAL
 //! PHASE silence             # trailing silence just started
+//! FINAL hello world         # committed transcript for the utterance
 //! ```
+//!
+//! `PARTIAL` streams the best guess *while you are still speaking* and is
+//! superseded by the next `PARTIAL` (a UI should overwrite, not append).
+//! `FINAL` is emitted once at the end and is the text to commit; `DONE`
+//! follows it. `serve` uses `PARTIAL`/`FINAL` instead of the batch
+//! `SEGMENT` that `transcribe` streams.
 
 use std::io::Write;
 
@@ -44,6 +52,21 @@ pub fn level(rms: f32) {
 /// just `silence`, when trailing silence begins).
 pub fn phase(s: &str) {
     println!("PHASE {s}");
+    flush();
+}
+
+/// Emit an interim transcript while the user is still speaking. Each
+/// `PARTIAL` supersedes the previous one for the same utterance, so a
+/// consumer should overwrite its live line rather than append.
+pub fn partial(s: &str) {
+    println!("PARTIAL {s}");
+    flush();
+}
+
+/// Emit the committed transcript for a finished utterance. Followed by
+/// [`done`]. This is the text a consumer should insert.
+pub fn final_text(s: &str) {
+    println!("FINAL {s}");
     flush();
 }
 

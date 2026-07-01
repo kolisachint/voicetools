@@ -61,10 +61,11 @@ Environment variables: `VOICETOOLS_MODEL`, `VOICE_SILENCE_MS`.
 
 ## Serve (persistent daemon)
 
-`transcribe` reloads the ONNX models on every invocation, which is fine for a
-single call but adds a cold start to every push-to-talk press. `serve` loads
-the models once and then answers commands on stdin, so repeated captures are
-instant:
+`transcribe` reloads the ONNX models on every invocation and only decodes
+*after* you stop talking. `serve` loads the models once and then answers
+commands on stdin, so repeated captures are instant — and it transcribes
+**live**, streaming interim text as you speak rather than dumping it all at
+the end:
 
 ```bash
 voicetools serve
@@ -73,8 +74,12 @@ voicetools serve
 #         SHUTDOWN         exit gracefully
 ```
 
-Same `--model`/`--silence-ms` flags and env vars as `transcribe`. One capture
-runs at a time; the mic opens on `START` and closes when it stops.
+While listening it re-decodes the audio-so-far on a short interval and emits a
+`PARTIAL` line; at the end it emits one authoritative `FINAL`. Flags:
+`--model`, `--silence-ms`, and `--partial-ms` (min gap between partials,
+default 400; `0` disables partials). Env vars `VOICETOOLS_MODEL`,
+`VOICE_SILENCE_MS`, `VOICE_PARTIAL_MS`. One capture runs at a time; the mic
+opens on `START` and closes when it stops.
 
 ## Output protocol
 
@@ -89,13 +94,19 @@ DONE                     # finished
 ERROR <message>          # fatal; process exits non-zero
 ```
 
-`serve` speaks the same protocol plus three daemon-only lines:
+`serve` speaks the same protocol plus daemon-only lines for the live UI:
 
 ```text
 READY                    # models finished loading; ready for START
 LEVEL 0.0123              # live RMS energy per audio chunk, while listening
+PARTIAL hello wor         # interim transcript so far; replaces the last PARTIAL
 PHASE silence             # trailing silence just started, while listening
+FINAL hello world         # committed transcript; DONE follows
 ```
+
+`PARTIAL` streams the best guess while you speak and is superseded by the next
+one (overwrite, don't append); `FINAL` is the text to insert. `serve` uses
+`PARTIAL`/`FINAL` in place of the batch `SEGMENT` that `transcribe` streams.
 
 ## Architecture
 
@@ -103,11 +114,11 @@ PHASE silence             # trailing silence just started, while listening
 src/
 ├── main.rs            CLI + subcommands, mic→VAD→transcribe pipeline
 ├── mic.rs             cpal capture (native-rate mono chunks over a channel)
-├── audio.rs           mono downmix, linear resample → 16 kHz, WAV loading
+├── audio.rs           mono downmix, anti-aliased resample → 16 kHz, WAV loading
 ├── vad.rs             energy VAD with auto-stop on trailing silence
 ├── setup.rs           model registry + HuggingFace download wizard
 ├── protocol.rs        the stdout line protocol
-├── serve.rs           persistent daemon: START/CANCEL/SHUTDOWN over stdin
+├── serve.rs           persistent daemon: streaming START/CANCEL/SHUTDOWN over stdin
 └── transcribe/
     ├── mod.rs         Transcriber trait + backend selection
     ├── parakeet.rs    ONNX Runtime: nemo128 → encoder → decoder_joint (TDT)
@@ -115,8 +126,12 @@ src/
 ```
 
 Audio is captured at the device's native rate, VAD runs on those chunks (RMS
-is rate-independent), and the whole buffer is resampled to 16 kHz once before
-inference — avoiding per-callback resampling artifacts.
+is rate-independent), and the buffer is resampled to 16 kHz before inference.
+Resampling is anti-aliased — a windowed-sinc low-pass runs before decimation
+so high frequencies aren't folded back into the speech band (which garbles
+recognition). `transcribe` resamples and decodes the whole utterance once at
+the end; `serve` re-runs that pipeline on the audio-so-far at intervals to
+stream live `PARTIAL`s, then decodes the full buffer once more for `FINAL`.
 
 ### Parakeet decoding
 

@@ -7,9 +7,11 @@ release carries its own integration recipe; copy/apply them in hoocode.
 `voicetools serve` keeps models loaded in a background daemon for the life of
 the TUI process, so push-to-talk has no per-press cold start (the first press
 still waits for `READY`; every press after that jumps straight to
-listening). Binaries built before `serve` existed are detected and fall back
-to the previous spawn-per-press behavior automatically — no hoocode-side
-version gate needed.
+listening). Crucially it transcribes **live**: it streams `PARTIAL` lines as
+you speak and commits one `FINAL` at the end, so text builds up in the panel
+in real time instead of appearing all at once. Binaries built before `serve`
+existed are detected and fall back to the previous spawn-per-press behavior
+automatically — no hoocode-side version gate needed.
 
 ## 1. New file: `packages/tui/src/voice-transcribe.ts`
 
@@ -21,10 +23,14 @@ It exports:
   stdin. Probes support with `voicetools serve --help` (exits `0` iff the
   subcommand exists, regardless of model-load time) and falls back to
   `transcribeToInput` (spawn-per-press) for binaries that predate `serve`.
-- `VoiceStatusLine` — turns the `VoiceEvent` stream into one compact status
-  string: a spinner while warming up, `🔴 Listening` plus a live level meter
-  while capturing, a shrinking silence countdown once trailing silence
-  starts, and it collapses back to `""` on `DONE`/`ERROR`.
+  Only `FINAL` is injected into the input (via bracketed paste); `PARTIAL`s
+  are shown but never committed.
+- `VoicePanel` — turns the `VoiceEvent` stream into a **multi-line live
+  panel** (`render()` returns an array of lines): a spinner while warming up;
+  a `🔴 Listening` header with a live level meter; the transcript building up
+  word-by-word from `PARTIAL`s on the line below; a shrinking silence
+  countdown once trailing silence starts; a dim `esc cancel` footer. It
+  collapses to `[]` on `DONE`/`ERROR`.
 
 ## 2. `packages/tui/src/keybindings.ts` — add one binding
 
@@ -36,18 +42,18 @@ It exports:
 "tui.input.voiceTranscribe": { defaultKeys: "ctrl+r", description: "Voice input" },
 ```
 
-## 3. `packages/tui/src/tui.ts` — wire the daemon and keypress
+## 3. `packages/tui/src/tui.ts` — wire the daemon and render the panel
 
 ```ts
-import { VoiceDaemon, VoiceStatusLine } from "./voice-transcribe.js";
+import { VoiceDaemon, VoicePanel } from "./voice-transcribe.js";
 import { resolveVoicetoolsBin } from "@hoocode/coding-agent/config";
 
 // Created once for the TUI process lifetime (not per keypress).
-const voiceStatus = new VoiceStatusLine();
+const voicePanel = new VoicePanel();
 const voiceDaemon = new VoiceDaemon(resolveVoicetoolsBin(), stdinBuffer, (event) => {
-  voiceStatus.handle(event);
+  voicePanel.handle(event);
   if (event.type === "error") ctx.ui.notify(event.message, "error");
-  ctx.ui.setStatusLine(voiceStatus.render()); // render() is "" once collapsed
+  ctx.ui.setVoicePanel(voicePanel.render()); // string[]; [] once collapsed
 });
 
 let voiceSession: { cancel(): void } | null = null;
@@ -67,18 +73,15 @@ if (keybindings.matches(data, "tui.input.voiceCancel")) {
 voiceDaemon.dispose();
 ```
 
-Redraw `ctx.ui.setStatusLine(voiceStatus.render())` on an interval (e.g. every
-100ms) while `voiceStatus.active` is true, so the spinner/meter/countdown
-animate; a status-line-only redraw is enough, no full repaint needed.
+`VoicePanel.render()` returns the panel as an array of lines; draw it as a
+small region just above the input (or wherever transient status lives). While
+`voicePanel.active` is true, redraw on a short interval (~80ms) so the
+spinner, level meter and silence countdown animate — re-rendering only the
+panel region is enough, no full repaint. When it returns `[]`, clear the
+region.
 
-Move the old inline cancel hint out of the status line and into the
-persistent dim key footer (next to the other keybinding hints), since the
-status line is now busy with the meter/countdown:
-
-```ts
-// In the footer/key-hints row:
-if (voiceStatus.active) footerHints.push(dim("esc cancel"));
-```
+The `esc cancel` hint lives inside the panel's own dim footer line, so there's
+nothing extra to add to the global key-hints row.
 
 ## 4. `packages/coding-agent/src/config.ts` — resolve the binary
 
@@ -96,9 +99,10 @@ export function resolveVoicetoolsBin(): string {
 
 ## Notes
 
-- The TUI never parses stderr — only the stdout protocol (`READY` / `STATUS`
-  / `LEVEL` / `PHASE` / `SEGMENT` / `DONE` / `ERROR`). Keep that contract
-  intact.
+- The TUI never parses stderr — only the stdout protocol. `serve` speaks
+  `READY` / `STATUS` / `LEVEL` / `PARTIAL` / `PHASE` / `FINAL` / `DONE` /
+  `ERROR`; the pre-`serve` fallback path still speaks `STATUS` / `SEGMENT` /
+  `DONE` / `ERROR`. Keep that contract intact.
 - `VOICETOOLS_BIN` lets users point at a specific binary; otherwise a bundled
   `bin/voicetools` is preferred, then `PATH`.
 - `VoiceDaemon` sends `SHUTDOWN` and gives the process a short grace period on
