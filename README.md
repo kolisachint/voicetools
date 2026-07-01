@@ -12,11 +12,13 @@ a TUI (e.g. hoocode) as a push-to-talk input.
 
 > Status: v0.1. The mic → VAD → resample pipeline, the setup/download wizard,
 > the CLI, and the stdout protocol are implemented and unit-tested. The
-> Parakeet ONNX inference path is implemented against the
-> istupakov/PalatineVision export and compiles against `ort` 2.0, but the
-> end-to-end decode has **not** been validated against real model weights in
-> CI (models are large and gated). Validate locally with `--wav` (see below)
-> and please report I/O-name mismatches.
+> Parakeet TDT decode has been validated end-to-end against the real
+> `parakeet-tdt-0.6b-v3` int8 weights (clean transcription of a reference
+> speech clip); CI still can't run it because the models are large and gated,
+> so validate locally with `--wav`. Note: ONNX sessions run **single-threaded**
+> on purpose — multi-threaded int8 inference is non-deterministic and makes the
+> greedy decode drop or garble words (see `build_session` in
+> `src/transcribe/parakeet.rs`).
 
 ## Install
 
