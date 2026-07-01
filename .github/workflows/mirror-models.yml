@@ -1,0 +1,55 @@
+name: Mirror models
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download model files from HuggingFace
+        run: |
+          set -euo pipefail
+          mkdir -p mirror
+          curl -fL --retry 3 -o mirror/parakeet-v3-encoder.int8.onnx \
+            https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v3-decoder_joint.int8.onnx \
+            https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v3-nemo128.onnx \
+            https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/nemo128.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v3-vocab.txt \
+            https://huggingface.co/PalatineVision/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt
+
+          curl -fL --retry 3 -o mirror/parakeet-v2-encoder.int8.onnx \
+            https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/encoder-model.int8.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v2-decoder_joint.int8.onnx \
+            https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/decoder_joint-model.int8.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v2-nemo128.onnx \
+            https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/nemo128.onnx
+          curl -fL --retry 3 -o mirror/parakeet-v2-vocab.txt \
+            https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/vocab.txt
+
+          curl -fL --retry 3 -o mirror/whisper-small-en-ggml-small.en.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
+
+          ls -lh mirror/
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=models-v1
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists, uploading assets"
+          else
+            gh release create "$tag" \
+              --title "Model mirror v1" \
+              --notes-file MODELS_NOTICE.md
+          fi
+          gh release upload "$tag" mirror/* --clobber
