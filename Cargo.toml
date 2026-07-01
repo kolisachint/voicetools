@@ -1,6 +1,6 @@
 [package]
 name = "voicetools"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Local, offline voice-to-text for the terminal — Parakeet (ONNX) with a Whisper fallback"
 license = "MIT"
