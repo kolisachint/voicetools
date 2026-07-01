@@ -4,6 +4,8 @@
 //!   * `setup`      — download a model (first-run wizard)
 //!   * `models`     — list installed models
 //!   * `transcribe` — capture from the mic (or `--wav`) and stream text
+//!   * `serve`      — load models once, then serve START/CANCEL/SHUTDOWN
+//!     commands over stdin (see `src/serve.rs`)
 //!
 //! With no subcommand, `transcribe` runs. All output the consumer cares about
 //! goes to **stdout** as the line protocol in [`protocol`]; logs go to stderr.
@@ -11,6 +13,7 @@
 mod audio;
 mod mic;
 mod protocol;
+mod serve;
 mod setup;
 mod tls;
 mod transcribe;
@@ -49,6 +52,19 @@ enum Command {
     Models,
     /// Transcribe from the microphone (default) or a WAV file.
     Transcribe(TranscribeArgs),
+    /// Run as a persistent daemon: load models once, then serve
+    /// START/CANCEL/SHUTDOWN commands over stdin.
+    Serve(ServeArgs),
+}
+
+#[derive(Args, Clone)]
+struct ServeArgs {
+    /// Model to use (parakeet-v3, parakeet-v2, whisper-small).
+    #[arg(long, env = "VOICETOOLS_MODEL", default_value = "parakeet-v3")]
+    model: String,
+    /// Trailing-silence timeout, in milliseconds, before auto-stop.
+    #[arg(long, env = "VOICE_SILENCE_MS", default_value_t = 600)]
+    silence_ms: u64,
 }
 
 #[derive(Args, Clone)]
@@ -97,6 +113,7 @@ fn main() {
         ),
         Some(Command::Models) => setup::list(),
         Some(Command::Transcribe(args)) => run_transcribe(args),
+        Some(Command::Serve(args)) => serve::run(&args.model, args.silence_ms),
         None => run_transcribe(TranscribeArgs::from_env()),
     };
 
